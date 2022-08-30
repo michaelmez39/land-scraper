@@ -1,26 +1,47 @@
-use std::str::Lines;
-
+// #![allow(dead_code)]
+// #![allow(non_snake_case)]
+use crate::county_info::{
+    ConversionError, Coordinate, LandListing, ListingProvider, ProviderError, ServiceQuery,
+};
 use serde::Deserialize;
-use crate::county_info::{LandListing, ConversionError, Coordinate, RealEstateQuery, RealEstateResults};
 
-struct LandWatchQuery {
-    county: String,
-    state: String
-}
+use hyper::Client;
+use hyper::Uri;
+use async_trait::async_trait;
 
-impl LandWatchQuery {
-    fn new(county: String, state: String) -> Self {
-        Self {
-            county,
-            state
-        }
-    }
-}
+pub struct LandWatch;
 
-impl RealEstateQuery for LandWatchQuery {
+#[async_trait]
+impl ListingProvider for LandWatch {
     type Listing = LandWatchLandListing;
-    fn query(&self) ->  {
-
+    type Error = ProviderError;
+    // type Output = std::pin::Pin<Box<dyn Future<Output=Result<Vec<Self::Listing>, Self::Error>>>>;
+    async fn load<T>(query: &ServiceQuery, client: &Client<T, hyper::Body>) -> Result<Vec<Self::Listing>, Self::Error>
+    where
+        T: hyper::client::connect::Connect + Clone + Send + Sync + 'static,
+    {
+        let url =  &format!("https://www.landwatch.com/api/property/search/1113/{}-land-for-sale/{}-county/undeveloped-land", query.state, query.county);
+        let uri = url.parse::<Uri>().map_err(|_| ProviderError::Query)?;
+        println!("url: {}", url);
+        let resp = client.get(uri).await?;
+        let resp = hyper::body::to_bytes(resp).await?;
+        let resp: Results = serde_json::from_slice(&resp)?;
+        
+        let num_listings = resp.len();
+        let mut results = resp.listings();
+        let mut page = 1;
+        while num_listings > results.len() {
+            println!("{} of {}", results.len(), num_listings);
+            let url = format!("{}/page-{}", url, page);
+            let uri = url.parse::<Uri>().map_err(|_| ProviderError::Query)?;
+            let resp = client.get(uri).await?;
+            let resp_bytes = hyper::body::to_bytes(resp).await?;
+            let resp_res: Results = serde_json::from_slice(&resp_bytes)?;
+            results.append(&mut resp_res.listings());
+            page += 1;
+        }
+    
+        Ok(results)
     }
 }
 
@@ -29,22 +50,19 @@ pub struct Results {
     searchResults: PropertyResults,
 }
 
-impl RealEstateResults for Results {
-    type Listing = LandWatchLandListing;
-    fn backend_listings(&self) -> &Vec<LandWatchLandListing> {
-        &self.searchResults.propertyResults
-    }
-}
 impl Results {
-    pub fn number_results(&self) -> u32 {
-        self.searchResults.totalCount
+    pub fn len(&self) -> usize {
+        self.searchResults.totalCount as usize
+    }
+    pub fn listings(self) -> Vec<LandWatchLandListing> {
+        self.searchResults.propertyResults
     }
 }
 
 #[derive(Deserialize, Debug)]
 pub struct PropertyResults {
     propertyResults: Vec<LandWatchLandListing>,
-    totalCount: u32
+    totalCount: u32,
 }
 
 #[derive(Deserialize, Debug)]
@@ -60,14 +78,7 @@ pub struct LandWatchLandListing {
     county: String,
     description: String,
     latitude: f64,
-    longitude: f64
-}
-
-impl std::fmt::Display for LandWatchLandListing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", self.acres, self.price, self.address, self.auctionDate, self.brokerCompany, self.city, self.zip, self.longitude, self.latitude)?;
-        return Ok(())
-    }
+    longitude: f64,
 }
 
 impl TryFrom<LandWatchLandListing> for LandListing {
@@ -83,8 +94,8 @@ impl TryFrom<LandWatchLandListing> for LandListing {
             description: value.description,
             coordinate: Some(Coordinate {
                 latitude: value.latitude,
-                longitude: value.longitude
-            })
+                longitude: value.longitude,
+            }),
         })
     }
 }
