@@ -1,63 +1,17 @@
-use hyper::Client;
+use crate::error::{ConversionError, ProviderError};
 use async_trait::async_trait;
-#[derive(Debug)]
-pub enum ConversionError {
-    MissingField(String),
-    InvalidField(String),
-}
-
-impl std::fmt::Display for ConversionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MissingField(s) => write!(f, "Listing is missing field {}", s)?,
-            Self::InvalidField(s) => write!(f, "Invalid field datatype for {}", s)?,
-        }
-        Ok(())
-    }
-}
-#[derive(Debug)]
-pub enum ProviderError {
-    Conversion(serde_json::Error),
-    Network(hyper::Error),
-    Query
-}
-
-impl From<hyper::Error> for ProviderError {
-    fn from(e: hyper::Error) -> Self {
-        ProviderError::Network(e)
-    }
-}
-
-impl From<serde_json::Error> for ProviderError {
-    fn from(e: serde_json::Error) -> Self {
-        ProviderError::Conversion(e)
-    }
-}
-impl std::fmt::Display for ProviderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Conversion(s) => write!(f, "Conversion failed: {}", s)?,
-            Self::Network(s) => write!(f, "Error getting data: {}", s)?,
-            Self::Query => write!(f,"Query was invalid")?
-        }
-        Ok(())
-    }
-}
-
-impl std::error::Error for ProviderError {}
-impl std::error::Error for ConversionError {}
-
+use hyper::Client;
 #[derive(Debug)]
 pub struct ServiceQuery {
-    pub county: String,
     pub state: String,
+    pub county: Option<String>,
     pub city: Option<String>,
 }
 
 impl ServiceQuery {
     pub fn builder() -> Self {
         Self {
-            county: String::new(),
+            county: None,
             state: String::new(),
             city: None,
         }
@@ -68,7 +22,7 @@ impl ServiceQuery {
         self
     }
     pub fn county(mut self, c: String) -> Self {
-        self.county = c;
+        self.county = Some(c);
         self
     }
     pub fn state(mut self, c: String) -> Self {
@@ -92,7 +46,6 @@ pub struct LandListing {
     pub seller: String,
     pub coordinate: Option<Coordinate>,
 }
-
 pub struct ProviderListing<T> {
     listings: Vec<T>,
 }
@@ -100,7 +53,7 @@ impl<T> ProviderListing<T> {
     pub fn new(listings: Vec<T>) -> Self {
         Self { listings }
     }
-    pub fn raw_listings(self) -> Vec<T>{
+    pub fn raw_listings(self) -> Vec<T> {
         self.listings
     }
 }
@@ -131,4 +84,10 @@ where
 pub trait ListingProvider {
     type Error: Into<ProviderError>;
     type Listing: TryInto<LandListing>;
+    async fn load<T>(
+        query: &ServiceQuery,
+        client: &Client<T, hyper::Body>,
+    ) -> Result<Vec<Self::Listing>, Self::Error>
+    where
+        T: hyper::client::connect::Connect + Clone + Send + Sync + 'static;
 }

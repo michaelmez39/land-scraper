@@ -1,11 +1,8 @@
-mod county_info;
-mod land_watch;
-use county_info::ListingProvider;
-use county_info::ServiceQuery;
-use land_watch::LandWatch;
-use land_watch::LandWatchLandListing;
 use hyper::Client;
-
+use land_scraper::county_info::ListingProvider;
+use land_scraper::county_info::ServiceQuery;
+use land_scraper::providers::land_watch::LandWatch;
+use land_scraper::providers::land_watch::LandWatchLandListing;
 
 #[tokio::main]
 async fn main() {

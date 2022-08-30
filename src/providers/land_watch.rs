@@ -1,8 +1,9 @@
 // #![allow(dead_code)]
 // #![allow(non_snake_case)]
 use crate::county_info::{
-    ConversionError, Coordinate, LandListing, ListingProvider, ProviderError, ServiceQuery,
+    Coordinate, LandListing, ListingProvider, ServiceQuery
 };
+use crate::error::{ConversionError, ProviderError};
 use serde::Deserialize;
 
 use hyper::Client;
@@ -20,7 +21,7 @@ impl ListingProvider for LandWatch {
     where
         T: hyper::client::connect::Connect + Clone + Send + Sync + 'static,
     {
-        let url =  &format!("https://www.landwatch.com/api/property/search/1113/{}-land-for-sale/{}-county/undeveloped-land", query.state, query.county);
+        let url =  &format!("https://www.landwatch.com/api/property/search/1113/{}-land-for-sale/{}-county/undeveloped-land", query.state, query.county.as_ref().ok_or(ProviderError::Query)?);
         let uri = url.parse::<Uri>().map_err(|_| ProviderError::Query)?;
         println!("url: {}", url);
         let resp = client.get(uri).await?;
